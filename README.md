@@ -1,2 +1,3 @@
-# ASD_Classification_Models
+# ABIDE 데이터셋 기반 자페 스펙트럼 장애 분류
+
 딥러닝을 이용한 자폐 분류 모델
