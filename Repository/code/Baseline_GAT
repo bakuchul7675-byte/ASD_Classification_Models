@@ -1,0 +1,96 @@
+import os
+import glob
+import torch
+import torch.nn.functional as F
+from torch_geometric.loader import DataLoader
+from torch_geometric.nn import GATConv, global_mean_pool
+
+# ==========================================
+# 1. 깃허브에서 가져온 고성능 모델 (예: GAT 모델)
+# (다윗이 다른 모델을 찾았다면 이 클래스를 지우고 그 모델을 import 하면 됨!)
+# ==========================================
+class Advanced_GAT_Model(torch.nn.Module):
+    def __init__(self, in_channels, hidden_channels, num_classes):
+        super(Advanced_GAT_Model, self).__init__()
+        # GAT 레이어 설정 (인호의 데이터는 특징이 3개이므로 in_channels=3)
+        self.conv1 = GATConv(in_channels, hidden_channels, heads=4, concat=False)
+        self.conv2 = GATConv(hidden_channels, hidden_channels, heads=4, concat=False)
+        # 최종 분류를 위한 선형 레이어 (자폐 vs 정상)
+        self.classifier = torch.nn.Linear(hidden_channels, num_classes)
+
+    def forward(self, data):
+        x, edge_index, edge_attr, batch = data.x, data.edge_index, data.edge_attr, data.batch
+        
+        # 1. 노드 특징 학습 (그래프 합성곱)
+        x = self.conv1(x, edge_index, edge_attr)
+        x = F.elu(x)
+        x = self.conv2(x, edge_index, edge_attr)
+        
+        # 2. 164개의 뇌 구역을 '환자 1명'으로 압축 (Pooling)
+        x = global_mean_pool(x, batch)
+        
+        # 3. 최종 분류
+        return self.classifier(x)
+
+# ==========================================
+# 2. 인호의 전처리 데이터(.pt) 불러오기 (데이터 로더)
+# ==========================================
+# 🚨 다윗은 이 경로를 본인 컴퓨터에 압축 푼 폴더 경로로 꼭 수정할 것!
+data_dir = r"C:\Users\konyang\Downloads\abide0512\aaaa"
+file_list = glob.glob(os.path.join(data_dir, '*.pt'))
+
+if not file_list:
+    print("⚠️ 에러: 데이터를 찾을 수 없습니다. 폴더 경로를 확인해 주세요!")
+else:
+    print(f"📦 총 {len(file_list)}명의 인호 데이터를 로드합니다...")
+
+    # PyTorch 버전 호환을 위해 weights_only=False 추가
+    dataset = [torch.load(f, weights_only=False) for f in file_list]
+
+    # 모델에 한 번에 32명씩 던져주기 위한 설정
+    loader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+    # ==========================================
+    # 3. 모델 장착 및 학습(Training) 루프
+    # ==========================================
+    # 모델 장착 (입력 채널 3, 자폐/정상 2개 클래스)
+    model = Advanced_GAT_Model(in_channels=3, hidden_channels=32, num_classes=2)
+    
+    # 최적화 도구 및 손실 함수 설정
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    print("\n🚀 본격적인 모델 학습을 시작합니다!")
+    model.train()
+
+    # 총 10번(Epoch) 반복 학습
+    for epoch in range(1, 11):
+        total_loss = 0
+        correct = 0
+        
+        for batch in loader:
+            optimizer.zero_grad()
+            
+            # 모델에 데이터 투입 후 예측
+            out = model(batch)
+            
+            # 오차(Loss) 계산
+            loss = criterion(out, batch.y)
+            
+            # 오차 역전파 및 가중치 업데이트
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            
+            # 정확도 계산을 위한 예측값 추출
+            pred = out.argmax(dim=1)
+            correct += int((pred == batch.y).sum())
+
+        # 1번 Epoch가 끝날 때마다 결과 출력
+        avg_loss = total_loss / len(loader)
+        accuracy = correct / len(dataset) * 100
+        print(f"Epoch: {epoch:02d} | Loss: {avg_loss:.4f} | Accuracy: {accuracy:.2f}%")
+
+
+    print("\n✅ 학습이 성공적으로 완료되었습니다!")
